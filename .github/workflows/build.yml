@@ -1,0 +1,32 @@
+name: Build iOS dylib
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Theos and iOS SDK
+      run: |
+        git clone --recursive https://github.com/theos/theos.git $HOME/theos
+        curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C $HOME/theos/sdks --strip-components=1
+
+    - name: Compile dylib
+      env:
+        THEOS: ${{ runner.temp }}/../../Users/runner/theos
+      run: |
+        export THEOS=$HOME/theos
+        make all
+
+    - name: Upload Compiled dylib
+      uses: actions/upload-artifact@v4
+      with:
+        name: HorrorfieldNoAds-dylib
+        path: .theos/obj/debug/HorrorfieldNoAds.dylib
