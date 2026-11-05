@@ -1,0 +1,9 @@
+Package: com.mod.horrorfieldnoads
+Name: Horrorfield NoAds
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Bypass Ads for Horrorfield
+Maintainer: User
+Author: User
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000)
