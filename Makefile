@@ -1,6 +1,7 @@
 TARGET := iphone:clang:latest:14.0
 INSTALL_TARGET_PROCESSES = Horrorfield
 ARCHS = arm64
+TARGET_CODESIGN =
 
 include $(THEOS)/makefiles/common.mk
 
