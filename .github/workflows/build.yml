@@ -13,16 +13,21 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Setup Theos and iOS SDK
+    - name: Setup Theos, iOS SDK, and ldid
       run: |
         git clone --recursive https://github.com/theos/theos.git $HOME/theos
         curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C $HOME/theos/sdks --strip-components=1
+        HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid || true
+        if ! command -v ldid &> /dev/null; then
+          mkdir -p $HOME/theos/bin
+          printf '#!/bin/bash\nfor last; do true; done\ncodesign -f -s - "$last" || true\n' > $HOME/theos/bin/ldid
+          chmod +x $HOME/theos/bin/ldid
+        fi
 
     - name: Compile dylib
-      env:
-        THEOS: ${{ runner.temp }}/../../Users/runner/theos
       run: |
         export THEOS=$HOME/theos
+        export PATH="$HOME/theos/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
         make all
 
     - name: Upload Compiled dylib
