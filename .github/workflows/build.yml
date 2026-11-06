@@ -13,25 +13,19 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Setup Theos, iOS SDK, and ldid
+    - name: Compile Pure iOS dylib (No Jailbreak)
       run: |
-        git clone --recursive https://github.com/theos/theos.git $HOME/theos
-        curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C $HOME/theos/sdks --strip-components=1
-        HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid || true
-        if ! command -v ldid &> /dev/null; then
-          mkdir -p $HOME/theos/bin
-          printf '#!/bin/bash\nfor last; do true; done\ncodesign -f -s - "$last" || true\n' > $HOME/theos/bin/ldid
-          chmod +x $HOME/theos/bin/ldid
-        fi
-
-    - name: Compile dylib
-      run: |
-        export THEOS=$HOME/theos
-        export PATH="$HOME/theos/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-        make all
+        xcrun -sdk iphoneos clang -arch arm64 -dynamiclib \
+          -miphoneos-version-min=13.0 \
+          -fobjc-arc \
+          -framework Foundation -framework UIKit \
+          -install_name @rpath/HorrorfieldNoAds.dylib \
+          -x objective-c Tweak.xm \
+          -o HorrorfieldNoAds.dylib
+        codesign -f -s - HorrorfieldNoAds.dylib
 
     - name: Upload Compiled dylib
       uses: actions/upload-artifact@v4
       with:
         name: HorrorfieldNoAds-dylib
-        path: .theos/obj/debug/HorrorfieldNoAds.dylib
+        path: HorrorfieldNoAds.dylib
