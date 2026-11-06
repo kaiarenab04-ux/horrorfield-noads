@@ -1,107 +1,136 @@
-%config(generator=internal)
-
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
-@protocol UnityAdsShowDelegate <NSObject>
-- (void)unityAdsShowComplete:(NSString *)placementId withFinishState:(NSInteger)state;
-@end
-
-@interface UnityAds : NSObject
-@end
-
-@interface IronSource : NSObject
-@end
-
-@interface MARewardedAd : NSObject
-@end
-
-@interface MAInterstitialAd : NSObject
-@end
-
-@interface GADRewardedAd : NSObject
-@end
-
-@interface GADInterstitialAd : NSObject
-@end
-
-%group AdsHooks
-
-// 1. ดักจับ UnityAds
-%hook UnityAds
-
-+ (BOOL)isReady:(NSString *)placementId {
-    return YES;
-}
-
-+ (void)show:(UIViewController *)viewController placementId:(NSString *)placementId showDelegate:(id<UnityAdsShowDelegate>)showDelegate {
-    if (showDelegate && [showDelegate respondsToSelector:@selector(unityAdsShowComplete:withFinishState:)]) {
-        [showDelegate unityAdsShowComplete:placementId withFinishState:2];
+// ฟังก์ชันดักจับแบบปลอดภัย: ถ้าไม่มีคลาสนั้นในเกม จะข้ามทันที ไม่ทำให้เกมเด้ง
+static void safeHookInstanceMethod(const char *className, const char *selectorName, IMP newImp) {
+    Class cls = objc_getClass(className);
+    if (!cls) return;
+    SEL sel = sel_registerName(selectorName);
+    Method m = class_getInstanceMethod(cls, sel);
+    if (m) {
+        method_setImplementation(m, newImp);
     }
 }
 
-%end
+static void safeHookClassMethod(const char *className, const char *selectorName, IMP newImp) {
+    Class cls = objc_getClass(className);
+    if (!cls) return;
+    SEL sel = sel_registerName(selectorName);
+    Method m = class_getClassMethod(cls, sel);
+    if (m) {
+        method_setImplementation(m, newImp);
+    }
+}
 
-// 2. ดักจับ IronSource
-%hook IronSource
-
-+ (BOOL)hasRewardedVideo {
+// ฟังก์ชันจำลองสถานะโฆษณา
+static BOOL returnYes(id self, SEL _cmd) {
     return YES;
 }
 
-+ (void)showRewardedVideoWithViewController:(UIViewController *)viewController {
-}
-
-+ (void)showRewardedVideoWithViewController:(UIViewController *)viewController placement:(NSString *)placementName {
-}
-
-+ (void)showInterstitialWithViewController:(UIViewController *)viewController {
-}
-
-%end
-
-// 3. ดักจับ AppLovin MAX
-%hook MARewardedAd
-
-- (BOOL)isReady {
+static BOOL returnYesWithArg(id self, SEL _cmd, id arg1) {
     return YES;
 }
 
-- (void)showAdForPlacement:(NSString *)placement {
+static void doNothing(id self, SEL _cmd, id arg1) {
 }
 
-%end
-
-%hook MAInterstitialAd
-
-- (void)showAdForPlacement:(NSString *)placement {
+static void doNothing2(id self, SEL _cmd, id arg1, id arg2) {
 }
 
-%end
+// UnityAds: ส่งสถานะว่าดูโฆษณาจบแล้วทันที (FinishState = 2)
+static void hook_UnityAds_show(id self, SEL _cmd, id viewController, id placementId, id showDelegate) {
+    if (showDelegate) {
+        SEL completeSel = sel_registerName("unityAdsShowComplete:withFinishState:");
+        if ([showDelegate respondsToSelector:completeSel]) {
+            void (*func)(id, SEL, id, NSInteger) = (void (*)(id, SEL, id, NSInteger))[showDelegate methodForSelector:completeSel];
+            func(showDelegate, completeSel, placementId, 2);
+        }
+    }
+}
 
-// 4. ดักจับ Google Mobile Ads (AdMob)
-%hook GADRewardedAd
-
-- (void)presentFromRootViewController:(UIViewController *)rootViewController userDidEarnRewardHandler:(void (^)(void))rewardHandler {
+// AdMob: เรียกฟังก์ชันแจกรางวัลทันที
+static void hook_GADRewarded_present(id self, SEL _cmd, id rootVC, void (^rewardHandler)(void)) {
     if (rewardHandler) {
         rewardHandler();
     }
 }
 
-%end
-
-%hook GADInterstitialAd
-
-- (void)presentFromRootViewController:(UIViewController *)rootViewController {
+// แสดงป๊อปอัปแจ้งเตือนเมื่อเข้าเกมสำเร็จ
+static void showLoadedAlert(NSString *detectedInfo) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *foundWindow = nil;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+                for (UIWindow *w in windowScene.windows) {
+                    if (w.isKeyWindow) {
+                        foundWindow = w;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!foundWindow) {
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            foundWindow = [UIApplication sharedApplication].keyWindow;
+            #pragma clang diagnostic pop
+        }
+        UIViewController *rootVC = foundWindow.rootViewController;
+        while (rootVC.presentedViewController) {
+            rootVC = rootVC.presentedViewController;
+        }
+        if (rootVC) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Horrorfield NoAds ทำงานแล้ว!"
+                                                                           message:detectedInfo
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"ตกลง" style:UIAlertActionStyleDefault handler:nil]];
+            [rootVC presentViewController:alert animated:YES completion:nil];
+        }
+    });
 }
 
-%end
+// จุดเริ่มต้นทำงานเมื่อเปิดเกม (รอ 5 วินาทีให้เกมโหลดเสร็จก่อน)
+__attribute__((constructor))
+static void initNoAds(void) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        
+        // 1. UnityAds
+        safeHookClassMethod("UnityAds", "isReady:", (IMP)returnYesWithArg);
+        safeHookClassMethod("UnityAds", "show:placementId:showDelegate:", (IMP)hook_UnityAds_show);
 
-%end
+        // 2. IronSource
+        safeHookClassMethod("IronSource", "hasRewardedVideo", (IMP)returnYes);
+        safeHookClassMethod("IronSource", "showRewardedVideoWithViewController:", (IMP)doNothing);
+        safeHookClassMethod("IronSource", "showRewardedVideoWithViewController:placement:", (IMP)doNothing2);
+        safeHookClassMethod("IronSource", "showInterstitialWithViewController:", (IMP)doNothing);
 
-// รอให้ตัวเกมโหลดเข้าหน้าหลัก 2 วินาทีก่อนเริ่มทำงานเพื่อป้องกันแอปเด้ง
-%ctor {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        %init(AdsHooks);
+        // 3. AppLovin MAX
+        safeHookInstanceMethod("MARewardedAd", "isReady", (IMP)returnYes);
+        safeHookInstanceMethod("MARewardedAd", "showAdForPlacement:", (IMP)doNothing);
+        safeHookInstanceMethod("MAInterstitialAd", "showAdForPlacement:", (IMP)doNothing);
+
+        // 4. Google AdMob
+        safeHookInstanceMethod("GADRewardedAd", "presentFromRootViewController:userDidEarnRewardHandler:", (IMP)hook_GADRewarded_present);
+        safeHookInstanceMethod("GADInterstitialAd", "presentFromRootViewController:", (IMP)doNothing);
+
+        // 5. Appodeal (ระบบโฆษณาที่ค่ายเกม Skytec นิยมใช้)
+        safeHookClassMethod("Appodeal", "isReadyForShowWithStyle:", (IMP)returnYesWithArg);
+        safeHookClassMethod("Appodeal", "showAd:rootViewController:", (IMP)returnYes);
+
+        // สแกนดูว่าในเกมมีคลาสโฆษณาตัวไหนอยู่บ้าง แล้วแจ้งเตือนบนหน้าจอ
+        NSMutableArray *foundAds = [NSMutableArray array];
+        NSArray *checkList = @[@"UnityAds", @"IronSource", @"MARewardedAd", @"GADRewardedAd", @"Appodeal", @"CASMediationManager"];
+        for (NSString *clsName in checkList) {
+            if (objc_getClass([clsName UTF8String]) != nil) {
+                [foundAds addObject:clsName];
+            }
+        }
+        
+        NSString *msg = foundAds.count > 0 
+            ? [NSString stringWithFormat:@"ตรวจพบระบบโฆษณาในเกม:\n%@", [foundAds componentsJoinedByString:@", "]]
+            : @"โหลดไฟล์ .dylib สำเร็จ 100%!";
+        showLoadedAlert(msg);
     });
 }
