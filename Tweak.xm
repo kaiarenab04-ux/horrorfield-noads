@@ -1,23 +1,31 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
-// ประกาศ Protocol และ Interface จำลองเพื่อให้คอมไพล์ผ่านโดยไม่ต้องมีไฟล์ Header ของ SDK
+// ประกาศ Protocol และ Class ล่วงหน้าเพื่อให้คอมไพเลอร์รู้จักโครงสร้างทั้งหมด
 @protocol UnityAdsShowDelegate <NSObject>
 - (void)unityAdsShowComplete:(NSString *)placementId withFinishState:(NSInteger)state;
 @end
 
-@protocol LevelPlayRewardedVideoDelegate <NSObject>
-- (void)didReceiveRewardForPlacement:(id)placementInfo withAdInfo:(id)adInfo;
-- (void)didCloseWithAdInfo:(id)adInfo;
+@interface UnityAds : NSObject
 @end
 
-@protocol ISRewardedVideoDelegate <NSObject>
-- (void)rewardedVideoDidReceiveRewardForPlacement:(id)placementInfo;
-- (void)rewardedVideoDidClose;
+@interface IronSource : NSObject
+@end
+
+@interface MARewardedAd : NSObject
+@end
+
+@interface MAInterstitialAd : NSObject
+@end
+
+@interface GADRewardedAd : NSObject
+@end
+
+@interface GADInterstitialAd : NSObject
 @end
 
 // ==========================================
-// 1. ดักจับ UnityAds (SDK หลักของเอนจิน Unity)
+// 1. ดักจับ UnityAds
 // ==========================================
 %hook UnityAds
 
@@ -27,7 +35,6 @@
 
 + (void)show:(UIViewController *)viewController placementId:(NSString *)placementId showDelegate:(id<UnityAdsShowDelegate>)showDelegate {
     if (showDelegate && [showDelegate respondsToSelector:@selector(unityAdsShowComplete:withFinishState:)]) {
-        // State 2 = kUnityAdsFinishStateCompleted (ดูจบสมบูรณ์)
         [showDelegate unityAdsShowComplete:placementId withFinishState:2];
     }
 }
@@ -35,7 +42,7 @@
 %end
 
 // ==========================================
-// 2. ดักจับ IronSource (ระบบตัวกลางโฆษณายอดนิยมในเกมมือถือ)
+// 2. ดักจับ IronSource
 // ==========================================
 %hook IronSource
 
@@ -44,21 +51,18 @@
 }
 
 + (void)showRewardedVideoWithViewController:(UIViewController *)viewController {
-    // บล็อกการเปิดหน้าต่างวิดีโอโฆษณา
 }
 
-+ (void)showRewardedVideoWithViewController:(UIViewController *)viewController placement:(nullable NSString *)placementName {
-    // บล็อกการเปิดหน้าต่างวิดีโอโฆษณาตาม Placement
++ (void)showRewardedVideoWithViewController:(UIViewController *)viewController placement:(NSString *)placementName {
 }
 
 + (void)showInterstitialWithViewController:(UIViewController *)viewController {
-    // บล็อกโฆษณาคั่นฉาก (Interstitial)
 }
 
 %end
 
 // ==========================================
-// 3. ดักจับ AppLovin MAX (ALIncentivizedInterstitialAd / MARewardedAd)
+// 3. ดักจับ AppLovin MAX
 // ==========================================
 %hook MARewardedAd
 
@@ -66,16 +70,14 @@
     return YES;
 }
 
-- (void)showAdForPlacement:(nullable NSString *)placement {
-    // ข้ามการแสดงผลโฆษณา
+- (void)showAdForPlacement:(NSString *)placement {
 }
 
 %end
 
 %hook MAInterstitialAd
 
-- (void)showAdForPlacement:(nullable NSString *)placement {
-    // บล็อกโฆษณาคั่นฉาก
+- (void)showAdForPlacement:(NSString *)placement {
 }
 
 %end
@@ -86,7 +88,6 @@
 %hook GADRewardedAd
 
 - (void)presentFromRootViewController:(UIViewController *)rootViewController userDidEarnRewardHandler:(void (^)(void))rewardHandler {
-    // เรียก Handler แจกรางวัลทันทีโดยไม่ต้องเปิดหน้าต่างโฆษณา
     if (rewardHandler) {
         rewardHandler();
     }
@@ -97,7 +98,6 @@
 %hook GADInterstitialAd
 
 - (void)presentFromRootViewController:(UIViewController *)rootViewController {
-    // บล็อกโฆษณาคั่นฉากของ AdMob
 }
 
 %end
